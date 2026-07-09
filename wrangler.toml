@@ -1,0 +1,19 @@
+name = "asset-proxy"
+main = "cloudflare-worker.js"
+compatibility_date = "2026-07-01"
+
+routes = [
+  { pattern = "assets.atio.dev/*", zone_name = "atio.dev" }
+]
+
+[vars]
+HETZNER_ENDPOINT = "fsn1.your-objectstorage.com"
+HETZNER_BUCKET = "atio-configurator"
+# ALLOWED_ORIGIN = "https://shop.yourdomain.com"
+ALLOWED_ORIGIN = "*"
+CACHE_TTL_SECONDS = "86400"
+
+# Secrets - never put these in this file. Set them with:
+#   wrangler secret put SIGNING_SECRET
+#   wrangler secret put HETZNER_ACCESS_KEY
+#   wrangler secret put HETZNER_SECRET_KEY
