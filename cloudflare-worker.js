@@ -37,8 +37,12 @@ export default {
     }
 
     // 3. Soft origin check - defense in depth, not the primary control.
-    const origin = request.headers.get("Origin") || request.headers.get("Referer") || "";
-    if (env.ALLOWED_ORIGIN && origin && !origin.startsWith(env.ALLOWED_ORIGIN)) {
+    // Exact match only: startsWith() would let "https://store.com.evil.com"
+    // through, since that string does start with "https://store.com".
+    const allowedOrigins = (env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const origin = request.headers.get("Origin") || "";
+    const allowOrigin = allowedOrigins.includes(origin) ? origin : "";
+    if (allowedOrigins.length && origin && !allowOrigin) {
       return new Response("Forbidden origin", { status: 403 });
     }
 
@@ -52,7 +56,7 @@ export default {
 
     let response = await cache.match(cacheKey);
     if (response) {
-      return withCorsHeaders(response, env);
+      return withCorsHeaders(response, allowOrigin);
     }
 
     // 5. Cache miss - sign and fetch the real object from Hetzner.
@@ -77,13 +81,13 @@ export default {
 
     ctx.waitUntil(cache.put(cacheKey, response.clone()));
 
-    return withCorsHeaders(response, env);
+    return withCorsHeaders(response, allowOrigin);
   },
 };
 
-function withCorsHeaders(response, env) {
+function withCorsHeaders(response, allowOrigin) {
   const out = new Response(response.body, response);
-  out.headers.set("Access-Control-Allow-Origin", env.ALLOWED_ORIGIN || "");
+  out.headers.set("Access-Control-Allow-Origin", allowOrigin);
   out.headers.set("Vary", "Origin");
   return out;
 }
