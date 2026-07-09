@@ -1,18 +1,33 @@
 import { AwsClient } from "aws4fetch";
 
 // Environment bindings (set via `wrangler secret put` / wrangler.toml [vars]):
-//   SIGNING_SECRET     - shared HMAC secret with your backend, secret
+//   SIGNING_SECRET     - shared HMAC secret with the mint worker, secret
 //   HETZNER_ACCESS_KEY - S3 access key, secret
 //   HETZNER_SECRET_KEY - S3 secret key, secret
 //   HETZNER_ENDPOINT   - e.g. "fsn1.your-objectstorage.com", var
 //   HETZNER_BUCKET     - bucket name, var
-//   ALLOWED_ORIGIN     - e.g. "https://shop.example.com", var
+//   ALLOWED_ORIGINS    - comma-separated list, var
 //   CACHE_TTL_SECONDS  - e.g. "86400", var
 
 export default {
   async fetch(request, env, ctx) {
+    // Origin computed up front so every response - success or error -
+    // carries a correct CORS header. A response without one shows up in
+    // devtools as an opaque "blocked by CORS policy" regardless of what
+    // status code the server actually sent, which hides the real error.
+    const allowedOrigins = (env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const origin = request.headers.get("Origin") || "";
+    const allowOrigin = allowedOrigins.includes(origin) ? origin : "";
+
     if (request.method !== "GET" && request.method !== "HEAD") {
-      return new Response("Method not allowed", { status: 405 });
+      return new Response("Method not allowed", { status: 405, headers: cors(allowOrigin) });
+    }
+
+    // Soft origin check - defense in depth, not the primary control.
+    // Exact match only: startsWith() would let "https://store.com.evil.com"
+    // through, since that string does start with "https://store.com".
+    if (allowedOrigins.length && origin && !allowOrigin) {
+      return new Response("Forbidden origin", { status: 403, headers: cors(allowOrigin) });
     }
 
     const url = new URL(request.url);
@@ -21,32 +36,22 @@ export default {
     const sig = url.searchParams.get("sig");
 
     if (!key || !exp || !sig) {
-      return new Response("Missing token", { status: 401 });
+      return new Response("Missing token", { status: 401, headers: cors(allowOrigin) });
     }
 
     // 1. Reject expired tokens outright.
     const expiresAt = Number(exp);
     if (!Number.isFinite(expiresAt) || Date.now() / 1000 > expiresAt) {
-      return new Response("Link expired", { status: 403 });
+      return new Response("Link expired", { status: 403, headers: cors(allowOrigin) });
     }
 
     // 2. Verify the HMAC signature covers this exact key + expiry.
     const valid = await verifySignature(key, exp, sig, env.SIGNING_SECRET);
     if (!valid) {
-      return new Response("Invalid signature", { status: 403 });
+      return new Response("Invalid signature", { status: 403, headers: cors(allowOrigin) });
     }
 
-    // 3. Soft origin check - defense in depth, not the primary control.
-    // Exact match only: startsWith() would let "https://store.com.evil.com"
-    // through, since that string does start with "https://store.com".
-    const allowedOrigins = (env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
-    const origin = request.headers.get("Origin") || "";
-    const allowOrigin = allowedOrigins.includes(origin) ? origin : "";
-    if (allowedOrigins.length && origin && !allowOrigin) {
-      return new Response("Forbidden origin", { status: 403 });
-    }
-
-    // 4. Cache key deliberately excludes exp/sig, so every valid caller
+    // 3. Cache key deliberately excludes exp/sig, so every valid caller
     //    for the same object shares one edge cache entry instead of
     //    fragmenting the cache per-token.
     const cacheKeyUrl = new URL(request.url);
@@ -59,7 +64,7 @@ export default {
       return withCorsHeaders(response, allowOrigin);
     }
 
-    // 5. Cache miss - sign and fetch the real object from Hetzner.
+    // 4. Cache miss - sign and fetch the real object from Hetzner.
     const client = new AwsClient({
       accessKeyId: env.HETZNER_ACCESS_KEY,
       secretAccessKey: env.HETZNER_SECRET_KEY,
@@ -72,7 +77,7 @@ export default {
     const originResponse = await fetch(signedRequest);
 
     if (!originResponse.ok) {
-      return new Response("Asset not found", { status: originResponse.status });
+      return new Response("Asset not found", { status: originResponse.status, headers: cors(allowOrigin) });
     }
 
     response = new Response(originResponse.body, originResponse);
@@ -84,6 +89,10 @@ export default {
     return withCorsHeaders(response, allowOrigin);
   },
 };
+
+function cors(allowOrigin) {
+  return { "Access-Control-Allow-Origin": allowOrigin, Vary: "Origin" };
+}
 
 function withCorsHeaders(response, allowOrigin) {
   const out = new Response(response.body, response);
