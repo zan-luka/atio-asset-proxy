@@ -98,6 +98,7 @@ function withCorsHeaders(response, allowOrigin, cacheTtl) {
   const out = new Response(response.body, response);
   out.headers.set("Access-Control-Allow-Origin", allowOrigin);
   out.headers.set("Vary", "Origin");
+  out.headers.set("X-Worker-Debug", "cors-fix-v2"); // TEMPORARY - remove once confirmed live
   // Cloudflare's zone-level edge cache (separate from our own
   // caches.default usage above) does not respect Vary by default, so a
   // "public" Cache-Control here would let it freeze one origin's CORS
