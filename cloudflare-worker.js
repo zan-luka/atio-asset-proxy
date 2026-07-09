@@ -61,7 +61,7 @@ export default {
 
     let response = await cache.match(cacheKey);
     if (response) {
-      return withCorsHeaders(response, allowOrigin);
+      return withCorsHeaders(response, allowOrigin, env.CACHE_TTL_SECONDS || 86400);
     }
 
     // 4. Cache miss - sign and fetch the real object from Hetzner.
@@ -86,7 +86,7 @@ export default {
 
     ctx.waitUntil(cache.put(cacheKey, response.clone()));
 
-    return withCorsHeaders(response, allowOrigin);
+    return withCorsHeaders(response, allowOrigin, env.CACHE_TTL_SECONDS || 86400);
   },
 };
 
@@ -94,10 +94,19 @@ function cors(allowOrigin) {
   return { "Access-Control-Allow-Origin": allowOrigin, Vary: "Origin" };
 }
 
-function withCorsHeaders(response, allowOrigin) {
+function withCorsHeaders(response, allowOrigin, cacheTtl) {
   const out = new Response(response.body, response);
   out.headers.set("Access-Control-Allow-Origin", allowOrigin);
   out.headers.set("Vary", "Origin");
+  // Cloudflare's zone-level edge cache (separate from our own
+  // caches.default usage above) does not respect Vary by default, so a
+  // "public" Cache-Control here would let it freeze one origin's CORS
+  // header and serve that same frozen copy to every visitor regardless
+  // of their actual Origin. "private" tells that layer to bypass and run
+  // the Worker on every request instead - our own Cache API lookup above
+  // already provides the real shared-cache benefit, and it does this
+  // correctly, since it recomputes allowOrigin fresh on every hit.
+  out.headers.set("Cache-Control", `private, max-age=${cacheTtl}`);
   return out;
 }
 
