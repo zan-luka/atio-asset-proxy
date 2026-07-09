@@ -9,7 +9,7 @@ custom_domain = true
 [vars]
 HETZNER_ENDPOINT = "fsn1.your-objectstorage.com"
 HETZNER_BUCKET = "atio-configurator"
-ALLOWED_ORIGIN = "https://atio.it,https://8b234f.myshopify.com,http://localhost:8080"
+ALLOWED_ORIGINS = "https://atio.it,https://8b234f.myshopify.com,http://localhost:8080"
 CACHE_TTL_SECONDS = "86400"
 
 # Secrets - never put these in this file. Set them with:
