@@ -2,9 +2,9 @@ name = "atio-asset-proxy"
 main = "cloudflare-worker.js"
 compatibility_date = "2026-07-01"
 
-routes = [
-  { pattern = "assets.atio.dev/*", zone_name = "atio.dev" }
-]
+[[routes]]
+pattern = "assets.atio.dev"
+custom_domain = true
 
 [vars]
 HETZNER_ENDPOINT = "fsn1.your-objectstorage.com"
